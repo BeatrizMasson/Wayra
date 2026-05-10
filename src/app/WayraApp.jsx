@@ -445,6 +445,26 @@ const Wrap = ({ children, rtl }) => (
   </div>
 );
 
+function repairJSON(str) {
+  try { return JSON.parse(str); } catch {}
+  const m = str.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch {} }
+  let s = m ? m[0] : str;
+  s = s.replace(/,?\s*"[^"]*"\s*:\s*$/, '').replace(/,\s*$/, '');
+  const stack = [];
+  let inStr = false, escaped = false;
+  for (const ch of s) {
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\' && inStr) { escaped = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (!inStr) { if (ch === '{') stack.push('}'); else if (ch === '[') stack.push(']'); else if (ch === '}' || ch === ']') stack.pop(); }
+  }
+  if (inStr) s += '"';
+  s += stack.reverse().join('');
+  try { return JSON.parse(s); } catch {}
+  throw new Error("Não foi possível processar. Tente novamente.");
+}
+
 async function askClaude(userMsg, systemMsg) {
   const resp = await fetch("/api/claude", {
     method: "POST",
@@ -455,11 +475,9 @@ async function askClaude(userMsg, systemMsg) {
   if (data.error) throw new Error(data.error);
   const raw = (data.content || []).map(b => b.text || "").join("").trim();
   const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-  try { return JSON.parse(clean); }
+  try { return repairJSON(clean); }
   catch {
-    const m = clean.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error("Invalid JSON: " + clean.slice(0, 150));
+    throw new Error("Não foi possível processar a resposta. Tente novamente.");
   }
 }
 
